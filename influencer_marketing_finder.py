@@ -56,11 +56,17 @@ def fetch_all_possible_contacts(company_domain, api_key, status_container):
         }
         
         try:
-            time.sleep(0.5)
+            time.sleep(0.5)  # Safe rate limit pause
             response = requests.get(url, params=params, timeout=15)
             
             if response.status_code == 401:
                 return "Authentication Failed: Invalid Hunter API Key."
+                
+            # Gracefully handle Hunter's free tier pagination offset blockade
+            if response.status_code == 400:
+                status_container.success("🏁 Free Tier Cap Reached (Max 10 contacts parsed smoothly for this domain).")
+                break
+                
             if response.status_code != 200:
                 status_container.warning(f"⚠️ Terminated layout paging loop at page {current_page}. HTTP {response.status_code}")
                 break
@@ -83,6 +89,7 @@ def fetch_all_possible_contacts(company_domain, api_key, status_container):
                     full_name = f"{organization_name} Member"
                     
                 is_india = False
+                # Explicitly pass domestic Indian brands, or evaluate geographic markers
                 if "mcaffeine" in target_domain or "beyoung" in target_domain:
                     is_india = True
                 else:
