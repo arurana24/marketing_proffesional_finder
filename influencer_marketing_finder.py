@@ -38,7 +38,7 @@ def clean_domain(input_string):
 def fetch_fallback_public_leads(company_name, status_container, existing_emails):
     """Fallback engine that mines public indexes to find deeper contacts without API restrictions"""
     status_container.info(f"🔄 Hunter Free Cap reached. Deploying fallback extraction engine for **{company_name}**...")
-    keyword_filters = ["Marketing", "Influencer", "Manager", "Founder"]
+    keyword_filters = ["Influencer Marketing", "Digital Marketing", "Brand Manager", "Marketing Manager", "Performance Marketing"]
     fallback_leads = []
     
     with DDGS() as ddgs:
