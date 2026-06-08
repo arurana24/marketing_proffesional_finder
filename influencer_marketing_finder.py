@@ -1,18 +1,26 @@
-import os
-import time
-import requests
+import streamlit as st
 import pandas as pd
+import requests
+import time
 from urllib.parse import urlparse
+from io import BytesIO
 
 # ==========================================
-# CONFIGURATION MATRIX
+# PAGE CONFIGURATIONS & INTERFACE
 # ==========================================
-# 🔑 Paste your free Hunter.io API Key here
-HUNTER_API_KEY = "4cb3c54d95b5ddac4514e02e69210bb323b680f8"
-OUTPUT_EXCEL = "india_max_extracted_leads.xlsx"
+st.set_page_config(
+    page_title="India Influencer Marketing Finder",
+    page_icon="📡",
+    layout="wide"
+)
 
+st.title("📡 India Influencer Marketing Lead Finder")
+st.markdown("Extract real-time corporate marketing contacts directly via Hunter.io pagination loops.")
+
+# ==========================================
+# CORE EXTRACTION REQUISITES
+# ==========================================
 def clean_domain(input_string):
-    """Strips away protocols, www, sub-directories, and spacing to avoid errors"""
     raw_string = str(input_string).strip().lower()
     if not raw_string.startswith(('http://', 'https://')):
         raw_string = 'http://' + raw_string
@@ -25,8 +33,7 @@ def clean_domain(input_string):
     except Exception:
         return input_string
 
-def fetch_all_possible_contacts(company_domain, api_key):
-    """Loops through Hunter pagination to drain all available contacts"""
+def fetch_all_possible_contacts(company_domain, api_key, status_container):
     url = "https://api.hunter.io/v2/domain-search"
     target_domain = clean_domain(company_domain)
     
@@ -36,51 +43,45 @@ def fetch_all_possible_contacts(company_domain, api_key):
     current_page = 1
     organization_name = target_domain.split('.')[0].title()
     
-    print(f"\n📡 Initiating multi-page data drain for: '{target_domain}'")
+    status_container.info(f"🛰️ Opening pagination data pipeline for: **{target_domain}**")
     
     while True:
-        print(f"⏳ Fetching Page {current_page} from Hunter...")
+        status_container.text(f"⏳ Extracting Page {current_page} records stream...")
         
-        # We pass the current_page variable to step through Hunter's database pages
         params = {
             "domain": target_domain,
             "api_key": api_key,
-            "limit": 10, # Keeping it at the safe free-tier limit per request
-            "offset": (current_page - 1) * 10 # Tells Hunter where the next page starts
+            "limit": 10,
+            "offset": (current_page - 1) * 10
         }
         
         try:
-            # Respectful rate limiting pause (Hunter allows 15 requests per second, so 0.5s is perfectly safe)
             time.sleep(0.5)
-            
             response = requests.get(url, params=params, timeout=15)
             
             if response.status_code == 401:
                 return "Authentication Failed: Invalid Hunter API Key."
             if response.status_code != 200:
-                print(f"⚠️ Stopped paging at page {current_page}. Server response: HTTP {response.status_code}")
+                status_container.warning(f"⚠️ Terminated layout paging loop at page {current_page}. HTTP {response.status_code}")
                 break
                 
             data = response.json().get("data", {})
             emails_data = data.get("emails", [])
             
-            # 🛑 CRITICAL BREAK CONDITION: If a page comes back empty, we've hit the end of the line!
             if not emails_data:
-                print(f"🏁 Reached the end of available data records (Total pages parsed: {current_page - 1}).")
+                status_container.success(f"🏁 Finished crawling. Total data pages extracted: {current_page - 1}")
                 break
                 
             organization_name = data.get("organization", organization_name)
             
-            # Process the batch of contacts from this specific page
             for contact in emails_data:
                 raw_position = contact.get("position") or "Executive / Team Member"
                 first = contact.get("first_name") or ""
                 last = contact.get("last_name") or ""
                 full_name = f"{first} {last}".strip()
                 if not full_name:
-                    full_name = f"{organization_name} Associate"
+                    full_name = f"{organization_name} Member"
                     
-                # Geographic location evaluation logic
                 is_india = False
                 if "mcaffeine" in target_domain or "beyoung" in target_domain:
                     is_india = True
@@ -102,50 +103,77 @@ def fetch_all_possible_contacts(company_domain, api_key):
                         "Source Page": current_page
                     })
             
-            # Increment to crawl the next batch of 10 on the next loop cycle
             current_page += 1
             
         except Exception as e:
-            print(f"❌ Exception error occurred on page {current_page}: {str(e)}")
+            status_container.error(f"❌ Core runtime exception encountered on page {current_page}: {str(e)}")
             break
             
     return all_compiled_leads
 
-def main():
-    print("\n🚀 Starting Hunter.io Max-Yield Contact Harvester...")
-    
-    if HUNTER_API_KEY == "YOUR_HUNTER_API_KEY_HERE" or not HUNTER_API_KEY:
-        print("❌ Error: You must replace 'YOUR_HUNTER_API_KEY_HERE' on line 10.")
-        return
-        
-    target_company = input("\n🏢 Enter target domain (e.g., loreal.com, mcaffeine.com, unilever.com): ").strip()
-    if not target_company:
-        print("❌ Error: Target domain cannot be blank.")
-        return
-        
-    leads = fetch_all_possible_contacts(target_company, HUNTER_API_KEY)
-    
-    if isinstance(leads, str):
-        print(f"\n❌ Execution Stopped: {leads}")
-        return
-        
-    if not leads:
-        print("⚠️ No matching profiles extracted for this brand domain.")
-        return
-        
-    df = pd.DataFrame(leads)
-    
-    try:
-        df.to_excel(OUTPUT_EXCEL, index=False)
-        print(f"\n🎉 Maximum Extraction Run Complete!")
-        print(f"✅ Successfully extracted a total of {len(df)} contacts across all available data pages.")
-        print(f"👉 Master Excel data file saved inside directory as: '{OUTPUT_EXCEL}'\n")
-        
-        print(df[["Name", "Designation", "Corporate Email", "Source Page"]].head(15).to_string())
-        print("\n")
-        
-    except Exception as e:
-        print(f"❌ Error compiling output spreadsheet: {str(e)}")
+# ==========================================
+# STREAMLIT CONTROL PANEL SIDEBAR
+# ==========================================
+st.sidebar.header("🔑 Authentication Setup")
+user_api_key = st.sidebar.text_input("Hunter.io Private API Key", type="password", help="Input your workspace token.")
+target_company = st.sidebar.text_input("Company Domain", placeholder="e.g., mcaffeine.com")
 
-if __name__ == "__main__":
-    main()
+st.sidebar.markdown("---")
+st.sidebar.header("⚙️ Output Visual Options")
+
+show_email = st.sidebar.checkbox("Show Corporate Email", value=True)
+show_designation = st.sidebar.checkbox("Show Designation", value=True)
+show_confidence = st.sidebar.checkbox("Show Confidence Score", value=False)
+show_linkedin = st.sidebar.checkbox("Show LinkedIn Profile Link", value=True)
+show_page = st.sidebar.checkbox("Show Extracted Page Source Index", value=False)
+
+# ==========================================
+# DEPLOYMENT ENGINE SWEEPS
+# ==========================================
+if st.sidebar.button("Run Data Pipeline", type="primary"):
+    if not user_api_key:
+        st.error("❌ Enter your active Hunter.io credential token to authorize searches.")
+    elif not target_company:
+        st.error("❌ Specify a corporate network domain handle to harvest.")
+    else:
+        status_box = st.empty()
+        
+        with st.spinner("Extracting multi-page directory assets..."):
+            leads_matrix = fetch_all_possible_contacts(target_company, user_api_key, status_box)
+            
+        if isinstance(leads_matrix, str):
+            st.error(leads_matrix)
+        elif not leads_matrix:
+            st.warning("⚠️ No matching profiles explicitly corresponding to domestic regional tags were found.")
+        else:
+            df = pd.DataFrame(leads_matrix)
+            master_df = df.copy()
+            
+            # Map checkboxes dynamically to active rendering arrays
+            display_columns = ["Name", "Company"]
+            if show_designation: display_columns.insert(1, "Designation")
+            if show_email: display_columns.append("Corporate Email")
+            if show_confidence: display_columns.append("Confidence Score")
+            if show_linkedin: display_columns.append("LinkedIn URL")
+            if show_page: display_columns.append("Source Page")
+            
+            filtered_df = df[display_columns]
+            
+            st.subheader(f"📊 Live Data Review (Matches: {len(df)})")
+            st.dataframe(filtered_df, use_container_width=True)
+            
+            # Pack memory streams cleanly to handle seamless inline excel generation downloads
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                master_df.to_excel(writer, index=False, sheet_name="India Lead Extract")
+            excel_binaries = excel_buffer.getvalue()
+            
+            st.markdown("---")
+            st.subheader("📥 Export Final Clean Asset")
+            
+            st.download_button(
+                label="Download Complete Roster as Excel",
+                data=excel_binaries,
+                file_name=f"{clean_domain(target_company).split('.')[0]}_leads_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
